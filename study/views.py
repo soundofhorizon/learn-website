@@ -2,7 +2,6 @@ import urllib.parse
 from datetime import datetime
 from pprint import pformat
 
-from henango.http.cookie import Cookie
 from henango.http.request import HTTPRequest
 from henango.http.response import HTTPResponse
 from henango.template.renderer import render
@@ -55,7 +54,7 @@ def user_profile(request: HTTPRequest) -> HTTPResponse:
 
 
 def set_cookie(request: HTTPRequest) -> HTTPResponse:
-    return HTTPResponse(cookies=[Cookie(name="username", value="TARO")])
+    return HTTPResponse(headers={"Set-Cookie": "username=TARO"})
 
 
 def login(request: HTTPRequest) -> HTTPResponse:
@@ -66,24 +65,34 @@ def login(request: HTTPRequest) -> HTTPResponse:
     elif request.method == "POST":
         post_params = urllib.parse.parse_qs(request.body.decode())
         username = post_params["username"][0]
-        email = post_params["email"][0]
 
-        cookies = [
-            Cookie(name="username", value=username, max_age=30),
-            Cookie(name="email", value=email, max_age=30),
-        ]
-
-        return HTTPResponse(status_code=302, headers={"Location": "/welcome"}, cookies=cookies)
+        headers = {"Location": "/welcome", "Set-Cookie": f"username={username}"}
+        return HTTPResponse(status_code=302, headers=headers)
 
 
 def welcome(request: HTTPRequest) -> HTTPResponse:
+    cookie_header = request.headers.get("Cookie", None)
+
+    # Cookieが送信されてきていなければ、ログインしていないとみなして/loginへリダイレクト
+    if not cookie_header:
+        return HTTPResponse(status_code=302, headers={"Location": "/login"})
+
+    # str から list へ変換
+    # ex) "name1=value1; name2=value2" => ["name1=value1", "name2=value2"]
+    cookie_strings = cookie_header.split("; ")
+
+    # list から dict へ変換
+    # ex) ["name1=value1", "name2=value2"] => {"name1": "value1", "name2": "value2"}
+    cookies = {}
+    for cookie_string in cookie_strings:
+        name, value = cookie_string.split("=", maxsplit=1)
+        cookies[name] = value
+
     # Cookieにusernameが含まれていなければ、ログインしていないとみなして/loginへリダイレクト
-    if "username" not in request.cookies:
+    if "username" not in cookies:
         return HTTPResponse(status_code=302, headers={"Location": "/login"})
 
     # Welcome画面を表示
-    username = request.cookies["username"]
-    email = request.cookies["email"]
-    body = render("welcome.html", context={"username": username, "email": email})
+    body = render("welcome.html", context={"username": cookies["username"]})
 
     return HTTPResponse(body=body)
